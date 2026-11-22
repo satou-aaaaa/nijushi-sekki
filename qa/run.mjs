@@ -14,6 +14,7 @@ import { checkSwStall } from "./sw-check.mjs";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const results = [];
 const check = (name, ok, detail = "") => results.push({ name, ok: !!ok, detail: String(detail).slice(0, 400) });
+const firstClose = async (q) => { if (await q.locator("#howto[open]").count()) await q.click("#howto-ok"); if (await q.locator("#core-coach").count()) { await q.evaluate(() => Core.coach.leave()); await q.waitForTimeout(100); } }; // はじめての練習の吹き出しをやめてホームへ（sync-template の migrateFirstQa が足した）
 const G = createRequire(import.meta.url)(path.join(root, "gen.js"));
 
 // ---- 0. gen.js とは別に持つ表（国立天文台「暦要項」2026・2027 と「こよみ用語解説」、国立国会図書館「日本の暦」の季節）----
@@ -169,7 +170,7 @@ async function newPage(w = 390, ctx) {
   await p.goto(url); await p.waitForTimeout(200);
   return p;
 }
-const closeHow = async (p) => { if (await p.locator("#howto[open]").count()) await p.click("#howto-ok"); };
+const closeHow = async (p) => { await firstClose(p); };
 const ansIdx = (p) => p.evaluate(() => { const c = __km.cur(); return c.P.opts.indexOf(c.P.ans); });
 const wrongIdx = (p) => p.evaluate(() => { const c = __km.cur(); return c.P.opts.findIndex((o) => o !== c.P.ans && !c.wrong.includes(o)); });
 const mem = (p) => p.evaluate(() => JSON.parse(localStorage.getItem("sekki-v1") || "{}"));
@@ -182,8 +183,8 @@ async function solve(p, { wrong = 0 } = {}) {
 try {
   // はじめて：遊び方が出る・文字の大きさ
   const p = await newPage();
-  check("はじめて開くと遊び方が出る", await p.locator("#howto[open]").count() === 1);
-  await p.click("#howto-ok");
+  check("はじめて開くと遊び方が出る", await p.locator("#core-coach").count() === 1);
+  await firstClose(p);
   {
     const q = await newPage();
     await q.keyboard.press("Escape"); await q.waitForTimeout(100);
@@ -446,7 +447,7 @@ try {
 // 引き継ぎコード（shared-workflows template/qa/transfer-check.mjs）
 try {
   const sample = { "sekki-v1": JSON.stringify({ v: 1, tut: true, days: { "2026-11-07": { m: [0, 1, 0, 0, 2], k: ["imi", "yomi", "tsugi", "hi", "kokei"] } }, hdays: {}, adays: {}, dex: { imi: 1, yomi: 1, tsugi: 1, hi: 1, kokei: 1 }, runs: {}, kofi: {}, ach: {}, ebest: 7, elast: null, t: 1 }), "sekki-fs": "3" };
-  await checkTransfer({ browser, url, game: "nijushi-sekki", sample, check, open: async (pg) => { if (await pg.locator("#howto[open]").count()) await pg.click("#howto-ok"); } });
+  await checkTransfer({ browser, url, game: "nijushi-sekki", sample, check, open: async (pg) => { await firstClose(pg); } });
 } catch (e) { check("引き継ぎの検査が最後まで動く", false, e.message.split("\n")[0]); }
 // 保存できないとき：帯 #savewarn でちょうど1つ知らせ、2秒たっても残り、保存できるようになったら消える（2026-11-17。黙って記録が消えないように）
 {
@@ -454,12 +455,12 @@ try {
   await cw.addInitScript(() => { window.__origSetItem = Storage.prototype.setItem; Storage.prototype.setItem = function () { throw new Error("full"); }; });
   const pw = await cw.newPage(); await pw.goto(url); await pw.waitForTimeout(300);
   const nW = () => pw.evaluate(() => document.querySelectorAll("#savewarn").length);
-  if (!(await pw.isVisible("#howto-ok"))) await pw.click("#f-how");
-  await pw.click("#howto-ok"); await pw.waitForTimeout(100);
+  if (!(await pw.isVisible("#howto-ok"))) await firstClose(pw).then(() => pw.click("#f-how"));
+  await firstClose(pw); await pw.waitForTimeout(100);
   const n1 = await nW(), txt = await pw.evaluate(() => (document.getElementById("savewarn") || {}).textContent || "");
   await pw.waitForTimeout(2000); const n2 = await nW();
   await pw.evaluate(() => { Storage.prototype.setItem = window.__origSetItem; });
-  await pw.click("#f-how"); await pw.click("#howto-ok"); await pw.waitForTimeout(100); const n3 = await nW();
+  await firstClose(pw).then(() => pw.click("#f-how")); await firstClose(pw); await pw.waitForTimeout(100); const n3 = await nW();
   check("保存できないブラウザで遊ぶと、帯（#savewarn）でちょうど1つ知らせ、2秒たっても残る・保存できるようになったら消える", n1 === 1 && n2 === 1 && txt.includes("保存できませんでした") && n3 === 0, JSON.stringify([n1, n2, n3, txt]));
   await cw.close();
 }
